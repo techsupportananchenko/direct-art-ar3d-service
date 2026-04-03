@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import base64
+import binascii
 import html
 import json
 import os
@@ -7,8 +9,11 @@ import re
 import sys
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+from PIL import Image
 
 SERVICE_DIR = Path(__file__).resolve().parent
 MONOREPO_ROOT = SERVICE_DIR.parent
@@ -129,10 +134,103 @@ DEFAULT_ENHANCED_FEATURES = {
 MODEL_ROUTE_PATTERN = re.compile(r"^/api/ar/model/([^/]+)$")
 MODEL_FILE_ROUTE_PATTERN = re.compile(r"^/api/ar/models/([^/]+)$")
 SAFE_COLOR_PATTERN = re.compile(r"^[#(),.%\w\s-]+$")
+IMAGE_ALPHA_CROP_THRESHOLD = 32
 
 
 def ensure_models_dir():
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def decode_generation_image(image_data):
+    if not isinstance(image_data, str) or not image_data.strip():
+        raise ValueError("Invalid imageData")
+
+    trimmed = image_data.strip()
+    encoded = trimmed
+    if trimmed.startswith("data:"):
+        _header, separator, payload = trimmed.partition(",")
+        if not separator or not payload:
+            raise ValueError("Invalid imageData")
+        encoded = payload
+
+    try:
+        image_bytes = base64.b64decode(encoded, validate=False)
+    except (ValueError, binascii.Error) as error:
+        raise ValueError("Invalid imageData") from error
+
+    try:
+        image = Image.open(BytesIO(image_bytes))
+        image.load()
+    except Exception as error:
+        raise ValueError("Invalid imageData") from error
+
+    return image
+
+
+def get_alpha_crop_bbox(image):
+    if "A" not in image.getbands():
+        return None
+
+    alpha = image.getchannel("A")
+    mask = alpha.point(lambda value: 255 if value >= IMAGE_ALPHA_CROP_THRESHOLD else 0)
+    return mask.getbbox()
+
+
+def sample_edge_background_color(image):
+    rgba = image.convert("RGBA")
+    width, height = rgba.size
+    pixels = rgba.load()
+    samples = []
+
+    def add_sample(x, y):
+        r, g, b, a = pixels[x, y]
+        if a >= IMAGE_ALPHA_CROP_THRESHOLD:
+            samples.append((r, g, b))
+
+    for x in range(width):
+        add_sample(x, 0)
+        if height > 1:
+            add_sample(x, height - 1)
+    for y in range(height):
+        add_sample(0, y)
+        if width > 1:
+            add_sample(width - 1, y)
+
+    if not samples:
+        step_x = max(width // 16, 1)
+        step_y = max(height // 16, 1)
+        for y in range(0, height, step_y):
+            for x in range(0, width, step_x):
+                add_sample(x, y)
+
+    if not samples:
+        return (245, 245, 245)
+
+    return tuple(
+        round(sum(sample[index] for sample in samples) / len(samples))
+        for index in range(3)
+    )
+
+
+def normalize_generation_image_data(image_data):
+    image = decode_generation_image(image_data)
+
+    if "A" not in image.getbands():
+        return image_data
+
+    rgba_image = image.convert("RGBA")
+    crop_bbox = get_alpha_crop_bbox(rgba_image)
+    if crop_bbox:
+        rgba_image = rgba_image.crop(crop_bbox)
+
+    background_color = sample_edge_background_color(rgba_image)
+    flattened_image = Image.new("RGB", rgba_image.size, background_color)
+    flattened_image.paste(rgba_image, mask=rgba_image.getchannel("A"))
+
+    buffer = BytesIO()
+    flattened_image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 def get_generator_status():
@@ -737,6 +835,12 @@ class ARGeneratorRequestHandler(BaseHTTPRequestHandler):
                 400,
                 {"error": "Missing required data: imageData, frameData, artworkData"},
             )
+            return
+
+        try:
+            image_data = normalize_generation_image_data(image_data)
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
             return
 
         model_id = str(uuid.uuid4())
