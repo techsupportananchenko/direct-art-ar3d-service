@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: direct-art-ar3d-service
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    healthCheckPath: /health
+    envVars:
+      - key: AR_SERVICE_MODELS_DIR
+        value: /opt/render/project/src/data/models
+      - key: AR_GENERATOR_SERVICE_TOKEN
+        sync: false
+    disk:
+      name: models
+      mountPath: /opt/render/project/src/data/models
+      sizeGB: 10

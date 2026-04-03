@@ -10,8 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-SHOPIFY_DIR = ROOT_DIR / "Shopify"
+SERVICE_DIR = Path(__file__).resolve().parent
+MONOREPO_ROOT = SERVICE_DIR.parent
 INITIAL_ENV_KEYS = set(os.environ.keys())
 
 
@@ -31,6 +31,24 @@ def normalize_secret(value):
     if len(trimmed) >= 2 and trimmed[0] == trimmed[-1] and trimmed[0] in {'"', "'"}:
         trimmed = trimmed[1:-1].strip()
     return trimmed or None
+
+
+def resolve_existing_dir(raw_value):
+    if not isinstance(raw_value, str):
+        return None
+    trimmed = raw_value.strip()
+    if not trimmed:
+        return None
+
+    candidate = Path(trimmed).expanduser()
+    if not candidate.is_absolute():
+        candidate = SERVICE_DIR / candidate
+    try:
+        resolved = candidate.resolve()
+    except OSError:
+        return None
+
+    return resolved if resolved.exists() else None
 
 
 def load_env_file(path_obj):
@@ -59,23 +77,39 @@ def load_env_file(path_obj):
         os.environ[key] = parse_env_value(value)
 
 
-load_env_file(ROOT_DIR / ".env")
-load_env_file(ROOT_DIR / ".env.local")
-load_env_file(Path(__file__).resolve().parent / ".env")
+load_env_file(MONOREPO_ROOT / ".env")
+load_env_file(MONOREPO_ROOT / ".env.local")
+load_env_file(SERVICE_DIR / ".env")
+load_env_file(SERVICE_DIR / ".env.local")
 
-if str(SHOPIFY_DIR) not in sys.path:
-    sys.path.insert(0, str(SHOPIFY_DIR))
+GENERATOR_MODULES_DIR = resolve_existing_dir(os.getenv("AR_SERVICE_GENERATOR_MODULES_DIR"))
+if GENERATOR_MODULES_DIR is None:
+    for candidate in (SERVICE_DIR / "Shopify", MONOREPO_ROOT / "Shopify"):
+        if candidate.exists():
+            GENERATOR_MODULES_DIR = candidate.resolve()
+            break
 
-from enhanced_ar_server import create_enhanced_3d_glb_from_image
-from enhanced_create_usdz import create_enhanced_3d_usdz_from_image
+if GENERATOR_MODULES_DIR and str(GENERATOR_MODULES_DIR) not in sys.path:
+    sys.path.insert(0, str(GENERATOR_MODULES_DIR))
+
+GENERATOR_IMPORT_ERROR = None
+
+try:
+    from enhanced_ar_server import create_enhanced_3d_glb_from_image
+    from enhanced_create_usdz import create_enhanced_3d_usdz_from_image
+except Exception as error:
+    GENERATOR_IMPORT_ERROR = error
+    create_enhanced_3d_glb_from_image = None
+    create_enhanced_3d_usdz_from_image = None
 
 MODELS_DIR = Path(
     os.getenv("AR_SERVICE_MODELS_DIR")
-    or ROOT_DIR / "ar-generator-service" / "data" / "models"
+    or SERVICE_DIR / "data" / "models"
 )
-PORT = int(os.getenv("AR_SERVICE_PORT", "3003"))
+PORT = int(os.getenv("AR_SERVICE_PORT") or os.getenv("PORT", "3003"))
 SERVICE_TOKEN = normalize_secret(os.getenv("AR_GENERATOR_SERVICE_TOKEN")) or ""
 PUBLIC_BASE_URL = (os.getenv("AR_SERVICE_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+RENDER_EXTERNAL_HOSTNAME = (os.getenv("RENDER_EXTERNAL_HOSTNAME") or "").strip()
 DEFAULT_ARTWORK_SIZE_MM = 1000
 MIN_GENERATED_FILE_SIZE_BYTES = 1000
 DEFAULT_MODEL_DEPTH_MM = 8
@@ -99,6 +133,14 @@ SAFE_COLOR_PATTERN = re.compile(r"^[#(),.%\w\s-]+$")
 
 def ensure_models_dir():
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_generator_status():
+    return {
+        "ready": GENERATOR_IMPORT_ERROR is None,
+        "modulesDir": str(GENERATOR_MODULES_DIR) if GENERATOR_MODULES_DIR else None,
+        "error": str(GENERATOR_IMPORT_ERROR) if GENERATOR_IMPORT_ERROR else None,
+    }
 
 
 def normalize_origin(value):
@@ -306,6 +348,9 @@ def get_model_dimensions(frame_data, artwork_data):
 def build_public_base_url(handler):
     if PUBLIC_BASE_URL:
         return PUBLIC_BASE_URL
+
+    if RENDER_EXTERNAL_HOSTNAME:
+        return f"https://{RENDER_EXTERNAL_HOSTNAME}"
 
     forwarded_host = normalize_origin(handler.headers.get("X-Forwarded-Host"))
     forwarded_proto = normalize_origin(handler.headers.get("X-Forwarded-Proto"))
@@ -594,7 +639,8 @@ class ARGeneratorRequestHandler(BaseHTTPRequestHandler):
             return
 
         if self.command in {"GET", "HEAD"} and route_path == "/health":
-            self.send_json(200, {"ok": True})
+            health_payload = {"ok": True, "generator": get_generator_status()}
+            self.send_json(200, health_payload)
             return
 
         if self.command in {"GET", "HEAD"} and route_path == "/ar-viewer":
@@ -664,6 +710,18 @@ class ARGeneratorRequestHandler(BaseHTTPRequestHandler):
         self.send_html(200, build_ar_viewer_html(model, embed, theme))
 
     def handle_generate_model(self):
+        if GENERATOR_IMPORT_ERROR is not None:
+            status = get_generator_status()
+            self.send_json(
+                503,
+                {
+                    "error": "AR generator modules are not available",
+                    "details": status["error"],
+                    "generatorModulesDir": status["modulesDir"],
+                },
+            )
+            return
+
         try:
             payload = self.read_json_body()
         except ValueError as error:
@@ -770,6 +828,12 @@ def main():
         f"[ar-generator-service] listening on http://0.0.0.0:{PORT} "
         f"(models dir: {MODELS_DIR})"
     )
+    if GENERATOR_IMPORT_ERROR is not None:
+        print(
+            "[ar-generator-service] generator modules unavailable: "
+            f"{GENERATOR_IMPORT_ERROR}",
+            file=sys.stderr,
+        )
     server.serve_forever()
 
 
