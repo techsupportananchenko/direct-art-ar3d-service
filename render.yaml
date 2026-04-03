@@ -7,8 +7,12 @@ services:
     startCommand: python server.py
     healthCheckPath: /health
     envVars:
+      - key: AR_SERVICE_GENERATOR_MODULES_DIR
+        value: ./Shopify
       - key: AR_SERVICE_MODELS_DIR
         value: /opt/render/project/src/data/models
+      - key: AR_SERVICE_PUBLIC_BASE_URL
+        sync: false
       - key: AR_GENERATOR_SERVICE_TOKEN
         sync: false
     disk:
