@@ -56,7 +56,8 @@ These routes are intentionally public:
 - `GET /health`
 - `GET /ar-viewer`
 - `GET /api/ar/model/:id`
-- `GET /api/ar/models/:id`
+- `GET /api/ar/files/:id/:fileType`
+- `GET /api/ar/models/:id?fileType=...` (legacy-compatible)
 
 This is by design, because browsers and iframes need to open the returned `viewerUrl`, `glbUrl`, and `usdzUrl` directly.
 

@@ -133,6 +133,7 @@ DEFAULT_ENHANCED_FEATURES = {
 }
 MODEL_ROUTE_PATTERN = re.compile(r"^/api/ar/model/([^/]+)$")
 MODEL_FILE_ROUTE_PATTERN = re.compile(r"^/api/ar/models/([^/]+)$")
+DIRECT_MODEL_FILE_ROUTE_PATTERN = re.compile(r"^/api/ar/files/([^/]+)/([^/]+)$")
 SAFE_COLOR_PATTERN = re.compile(r"^[#(),.%\w\s-]+$")
 IMAGE_ALPHA_CROP_THRESHOLD = 32
 
@@ -461,7 +462,7 @@ def build_public_base_url(handler):
 
 def build_public_file_url(handler, model_id, file_type):
     base_url = build_public_base_url(handler)
-    return f"{base_url}/api/ar/models/{model_id}?fileType={file_type}"
+    return f"{base_url}/api/ar/files/{model_id}/{file_type}"
 
 
 def with_public_urls(handler, model):
@@ -646,6 +647,14 @@ def get_model_metadata_path(model_id):
     return MODELS_DIR / f"{model_id}.json"
 
 
+def resolve_model_file(model_id, file_type):
+    if file_type == "glb":
+        return get_model_glb_path(model_id), "model/gltf-binary"
+    if file_type == "usdz":
+        return get_model_usdz_path(model_id), "model/vnd.usdz+zip"
+    return None, None
+
+
 def write_json_file(path_obj, payload):
     path_obj.write_text(json.dumps(payload, ensure_ascii=True), encoding="utf-8")
 
@@ -752,6 +761,14 @@ class ARGeneratorRequestHandler(BaseHTTPRequestHandler):
         model_match = MODEL_ROUTE_PATTERN.match(route_path)
         if self.command in {"GET", "HEAD"} and model_match:
             self.handle_get_model(model_match.group(1))
+            return
+
+        direct_model_file_match = DIRECT_MODEL_FILE_ROUTE_PATTERN.match(route_path)
+        if self.command in {"GET", "HEAD"} and direct_model_file_match:
+            self.handle_get_model_file_by_type(
+                direct_model_file_match.group(1),
+                direct_model_file_match.group(2),
+            )
             return
 
         model_file_match = MODEL_FILE_ROUTE_PATTERN.match(route_path)
@@ -904,18 +921,13 @@ class ARGeneratorRequestHandler(BaseHTTPRequestHandler):
     def handle_get_model_file(self, model_id, raw_query):
         query = parse_qs(raw_query or "")
         file_type = (query.get("fileType") or [None])[0]
-        file_path = None
-        content_type = "application/octet-stream"
+        self.handle_get_model_file_by_type(model_id, file_type)
 
-        if file_type == "glb":
-            file_path = get_model_glb_path(model_id)
-            content_type = "model/gltf-binary"
-        elif file_type == "usdz":
-            file_path = get_model_usdz_path(model_id)
-            content_type = "model/vnd.usdz+zip"
+    def handle_get_model_file_by_type(self, model_id, file_type):
+        file_path, content_type = resolve_model_file(model_id, file_type)
 
         if file_path is None:
-            self.send_json(400, {"error": "Missing modelId or fileType"})
+            self.send_json(400, {"error": "Missing or invalid fileType"})
             return
 
         if not file_path.exists():

@@ -12,6 +12,7 @@
 | `GET /ar-viewer` | Public |
 | `POST /api/ar/generate-model` | Shared token if configured |
 | `GET /api/ar/model/:id` | Public |
+| `GET /api/ar/files/:id/:fileType` | Public |
 | `GET /api/ar/models/:id?fileType=...` | Public |
 
 ## `GET /health`
@@ -76,8 +77,8 @@ When `AR_GENERATOR_SERVICE_TOKEN` is configured:
       "depth_mm": 8,
       "depth_inches": 0.31
     },
-    "glbUrl": "https://ar-service.example.com/api/ar/models/uuid?fileType=glb",
-    "usdzUrl": "https://ar-service.example.com/api/ar/models/uuid?fileType=usdz",
+    "glbUrl": "https://ar-service.example.com/api/ar/files/uuid/glb",
+    "usdzUrl": "https://ar-service.example.com/api/ar/files/uuid/usdz",
     "viewerUrl": "https://ar-service.example.com/ar-viewer?modelId=uuid"
   }
 }
@@ -105,21 +106,27 @@ Returns the metadata JSON, with URLs normalized to the current public base.
 - client-side inspection/debugging
 - future API orchestration
 
-## `GET /api/ar/models/:id?fileType=glb|usdz`
+## `GET /api/ar/files/:id/:fileType`
 
 ### Purpose
 
 Return the generated binary file itself.
 
-### Query param
+### Path param
 
-- `fileType=glb`
-- `fileType=usdz`
+- `fileType = glb`
+- `fileType = usdz`
 
 ### Errors
 
 - `400` missing or invalid `fileType`
 - `404` file missing
+
+## `GET /api/ar/models/:id?fileType=glb|usdz`
+
+### Purpose
+
+Legacy-compatible file route. It serves the same binary file as `/api/ar/files/:id/:fileType`.
 
 ## `GET /ar-viewer?modelId=...`
 

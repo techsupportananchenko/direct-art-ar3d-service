@@ -25,6 +25,7 @@ Those concerns stay in the main app or in external Direct.Art services.
 ## Documents in this folder
 
 - `architecture.md`: service role, boundaries, request flow, public/private surfaces
+- `direct-file-integration.md`: how to use direct GLB/USDZ file URLs instead of the hosted viewer page
 - `generation-pipeline.md`: how 3D assets are produced from the canvas snapshot
 - `viewer-and-delivery.md`: viewer HTML, file hosting, public URL rules
 - `endpoints.md`: all microservice endpoints in one place
@@ -43,7 +44,8 @@ This route is protected by `AR_GENERATOR_SERVICE_TOKEN`.
 - `GET /health`
 - `GET /ar-viewer?modelId=...`
 - `GET /api/ar/model/:id`
-- `GET /api/ar/models/:id?fileType=glb|usdz`
+- `GET /api/ar/files/:id/:fileType`
+- `GET /api/ar/models/:id?fileType=glb|usdz` (legacy-compatible)
 
 ### Current hosting model
 

@@ -86,14 +86,14 @@ That means:
 
 ## Public file delivery
 
-### `GET /api/ar/models/:id?fileType=glb`
+### `GET /api/ar/files/:id/glb`
 
 Returns:
 
 - content type: `model/gltf-binary`
 - cache control: `public, max-age=31536000, immutable`
 
-### `GET /api/ar/models/:id?fileType=usdz`
+### `GET /api/ar/files/:id/usdz`
 
 Returns:
 
@@ -164,3 +164,10 @@ This is intentional and allows:
 - CDN/proxy rewriting content types incorrectly
 
 If generation succeeds but viewer opens empty or model fetches fail, this delivery layer is the first place to inspect.
+
+## Backward compatibility
+
+The older query-param file route is still supported:
+
+- `GET /api/ar/models/:id?fileType=glb`
+- `GET /api/ar/models/:id?fileType=usdz`

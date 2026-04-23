@@ -130,8 +130,8 @@ Accept: application/json
   "data": {
     "modelId": "uuid",
     "viewerUrl": "https://ar.direct.art/ar-viewer?modelId=uuid",
-    "glbUrl": "https://ar.direct.art/api/ar/models/uuid?fileType=glb",
-    "usdzUrl": "https://ar.direct.art/api/ar/models/uuid?fileType=usdz",
+    "glbUrl": "https://ar.direct.art/api/ar/files/uuid/glb",
+    "usdzUrl": "https://ar.direct.art/api/ar/files/uuid/usdz",
     "dimensions": {
       "width_inches": 23.6,
       "height_inches": 31.5,
@@ -194,8 +194,8 @@ That keeps:
 From browsers and mobile devices, these microservice routes must be publicly reachable:
 
 - `GET /ar-viewer?modelId=...`
-- `GET /api/ar/models/:id?fileType=glb`
-- `GET /api/ar/models/:id?fileType=usdz`
+- `GET /api/ar/files/:id/glb`
+- `GET /api/ar/files/:id/usdz`
 - optionally `GET /api/ar/model/:id`
 
 If the platform API returns URLs but these routes are not public, the integration is incomplete.
@@ -246,7 +246,7 @@ The microservice itself is intentionally minimal. The platform layer is the righ
    - `GET /health`
    - server-to-server `POST /api/ar/generate-model`
    - browser `GET /ar-viewer?modelId=...`
-   - browser `GET /api/ar/models/:id?fileType=glb`
+   - browser `GET /api/ar/files/:id/glb`
    - iOS Quick Look via `usdzUrl`
 
 ## Recommended future improvement
